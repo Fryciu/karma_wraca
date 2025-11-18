@@ -109,7 +109,7 @@ try:
             end = time.time()
              
             dt += 1/BAUD_RATE+end-start
-            time.sleep(1/BAUD_RATE+end-start)
+            time.sleep(1/BAUD_RATE)
             
 
             
