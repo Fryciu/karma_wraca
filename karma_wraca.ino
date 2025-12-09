@@ -17,9 +17,9 @@ void loop() {
   //Serial.println("// loop ");
   // read things from the serial
   for (int n = 0; Serial.available() > 0; n++) {
-    Serial.println("loop");
+    Serial.println("// loop");
     if (n >= MAX_CMD_SIZE) {
-      Serial.println("ERROR: command too long! Trapping");
+      Serial.println("//ERROR: command too long! Trapping");
       while (1);
     }
 
@@ -54,11 +54,13 @@ void extrudeKarma() {
 
 void execCommand(const char* cmd) {
   if (strcmp(cmd, "EXTRUDE") == 0) {
-      Serial.println("- starting!");
+      Serial.println("// - starting!");
   } else if (strcmp(cmd, "TIME") == 0) {
-      Serial.println("- reporting time");
+      Serial.println("// - reporting time");
+  } else if (strcmp(cmd, "PING") == 0) {
+    Serial.println("PING");
   } else {
-    Serial.println("ERROR: unknown command!");
+    Serial.println("//ERROR: unknown command!");
     Serial.println(cmd);
     //while (1);
   }
