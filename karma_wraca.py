@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import serial
 import time
+from datetime import datetime
 
 # Adjust this to your serial port (e.g. "COM3" on Windows, "/dev/ttyUSB0" or "/dev/ttyACM0" on Linux)
 PORT = "/dev/ttyACM0"
@@ -24,7 +25,12 @@ def request(req : str, wait = True):
         else:
             return response
 
-print(request("EXTRUDE", True))
+#print(request("EXTRUDE", True))
+print(request("SETTIME\n" + str(time.time()), True))
+#ser.write((str(time.time()).encode() + b'\n'))
+t = int(request("TIME", True))
+print(datetime.fromtimestamp(time.time()))
+print(datetime.fromtimestamp(t))
 
 ser.close()
 

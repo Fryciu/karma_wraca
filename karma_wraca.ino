@@ -8,6 +8,7 @@
 
 #include <Servo.h>
 #include <Ds1302.h>
+#include <time.h>
 
 const auto SERVO_PWM = 9;
 const auto TickDelay = 200; // ms
@@ -15,9 +16,10 @@ const int MAX_CMD_SIZE = 10;
 const int CLOCK_CLK = 5;
 const int CLOCK_DAT = 6;
 const int CLOCK_RESET = 7;
+const int EXTRUDE_DELAY = 5;
 
 Servo feeder;
-Ds1302 clock(CLOCK_CLK, CLOCK_DAT, CLOCK_RESET);
+Ds1302 rtcClock(CLOCK_RESET,CLOCK_CLK, CLOCK_DAT);
 char command[MAX_CMD_SIZE]; // max of 10 chars
 
 void setup() {
@@ -25,30 +27,16 @@ void setup() {
   feeder.attach(SERVO_PWM);
   feeder.write(180);
   Serial.begin(9600);
-  clock.init();
+  rtcClock.init();
   Serial.println("// Karma wraca - Hello!");
 }
 
 void loop() {
   //Serial.println("// loop ");
   // read things from the serial
-  for (int n = 0; Serial.available() > 0; n++) {
-    Serial.println("// loop");
-    if (n >= MAX_CMD_SIZE) {
-      Serial.println("//ERROR: command too long! Trapping");
-      while (1);
-    }
-
-    char c = Serial.read();
-    if (c == '\n' || c == '\r') {
-      execCommand(command);
-      for (int i = 0; i < MAX_CMD_SIZE; i++) {
-        command[i] = 0;
-      }
-      break; // need to reset the loop to reset n
-    }
-
-    command[n] = c;
+  if (Serial.available()) {
+    auto command = Serial.readStringUntil('\n');
+    execCommand(command);
   }
 
   delay(TickDelay);
@@ -59,61 +47,94 @@ void extrudeKarma() {
   // Move servo from 0 to 180 degrees
   for (int i = 180; i > 0; i--) {     // scale it to use it with the servo (value between 0 and 180)
     feeder.write(i);                  // sets the servo position according to the scaled value
-    delay(15);                           // waits for the servo to get there
+    delay(EXTRUDE_DELAY);                           // waits for the servo to get there
   }
   
   // Move servo from 180 back to 0 degrees
   for (int i = 180; i > 0; i--) {
     feeder.write(180-i);                  // sets the servo position according to the scaled value
-    delay(15);                           // waits for the servo to get there
+    delay(EXTRUDE_DELAY);                           // waits for the servo to get there
   }
   Serial.println("//move done");
 }
 
-void execCommand(const char* cmd) {
-  if (strcmp(cmd, "EXTRUDE") == 0) {
+void execCommand(String cmd) {
+  if (cmd == "EXTRUDE") {
       extrudeKarma();
       Serial.println("DONE");
-  } else if (strcmp(cmd, "TIME") == 0) {
+  } else if (cmd == "TIME") {
       Serial.println("// - reporting time");
       Serial.println(getDS1302UnixTime());
-  } else if (strcmp(cmd, "PING") == 0) {
-    Serial.println("PING");
+  } else if (cmd == "SETTIME") {
+      Serial.println("// - settime received");
+      setTime();
+  } else if (cmd == "PING") {
+      Serial.println("PING");
   } else {
-    Serial.println("//ERROR: unknown command!");
-    Serial.println(cmd);
-    //while (1);
+      Serial.println("//ERROR: unknown command!");
+      Serial.println(cmd);
+      //while (1);
   }
 }
 
 unsigned long getDS1302UnixTime() {
   Ds1302::DateTime now;
-  clock.getDateTime(&now);
+  rtcClock.getDateTime(&now);
 
-  // Read time and date
-  int h = now.hour;
-  int m = now.minute;
-  int s = now.second;
-  int d = now.day;
-  int mo = now.month;
-  int y = now.year; // full year, e.g., 2025
+  tm* timeInfo = new tm;
+  timeInfo->tm_year = now.year+100; 
+  timeInfo->tm_mon = now.month;
+  timeInfo->tm_mday = now.day;
+  timeInfo->tm_hour = now.hour;
+  Serial.print("// Hour: ");
+  Serial.println(timeInfo->tm_hour);
+  timeInfo->tm_min = now.minute;
+  Serial.print("// min: ");
+  Serial.println(timeInfo->tm_min);
+  timeInfo->tm_sec = now.second;
+  timeInfo->tm_isdst = 0;
 
-  // Helper lambdas
-  auto isLeap = [](int year) {
-    return (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
-  };
-
-  auto daysInMonth = [&](int month, int year) {
-    const int days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
-    return (month == 2 && isLeap(year)) ? 29 : days[month-1];
-  };
-
-  // Count days since 1970
-  unsigned long days = 0;
-  for(int year=1970; year<y; year++) days += isLeap(year) ? 366 : 365;
-  for(int month=1; month<mo; month++) days += daysInMonth(month, y);
-  days += d - 1;
+  // Calculate unix time
+  time_t unixTime = mktime(timeInfo);
+  Serial.print("// unix time: ");
+  Serial.println(unixTime);
 
   // Convert to seconds
-  return days * 86400UL + h*3600UL + m*60UL + s;
+  return unixTime;
+}
+
+void setTime() {
+  if (!Serial.available()) {
+    Serial.println("// FATAL: no data on serial - time expected");
+    while(1);
+  }
+
+  auto x = Serial.readStringUntil('\n');
+  Ds1302::DateTime dt;
+  // decode unix time
+  auto unixTime = time_t(x.toInt());
+  // convert to date time
+  struct tm* timeInfo = localtime(&unixTime);
+  Serial.print("//");
+  Serial.print(unixTime);
+  Serial.print("\n");
+  dt.year = timeInfo->tm_year-100;
+  dt.month = timeInfo->tm_mon;
+  dt.day = timeInfo->tm_mday;
+  dt.hour = timeInfo->tm_hour;
+  Serial.print("// Hour: ");
+  Serial.println(timeInfo->tm_hour);
+  dt.minute = timeInfo->tm_min;
+  Serial.print("// min: ");
+  Serial.println(timeInfo->tm_min);
+  dt.second = timeInfo->tm_sec;
+  // set time to DS1302
+  rtcClock.setDateTime(&dt);
+  Serial.println("DONE");
+}
+
+uint8_t parseDigits(char* str, uint8_t count) {
+    uint8_t val = 0;
+    while(count-- > 0) val = (val * 10) + (*str++ - '0');
+    return val;
 }
