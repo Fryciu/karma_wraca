@@ -25,7 +25,7 @@ void setup() {
   feeder.attach(SERVO_PWM);
   feeder.write(180);
   Serial.begin(9600);
-  clock.begin();
+  clock.init();
   Serial.println("// Karma wraca - Hello!");
 }
 
@@ -87,13 +87,16 @@ void execCommand(const char* cmd) {
 }
 
 unsigned long getDS1302UnixTime() {
+  Ds1302::DateTime now;
+  clock.getDateTime(&now);
+
   // Read time and date
-  int h = clock.getHour();
-  int m = clock.getMinute();
-  int s = clock.getSecond();
-  int d = clock.getDate();
-  int mo = clock.getMonth();
-  int y = clock.getYear(); // full year, e.g., 2025
+  int h = now.hour;
+  int m = now.minute;
+  int s = now.second;
+  int d = now.day;
+  int mo = now.month;
+  int y = now.year; // full year, e.g., 2025
 
   // Helper lambdas
   auto isLeap = [](int year) {
