@@ -363,7 +363,6 @@ class ArduinoSchedulerApp(QMainWindow):
         with open("scheduled_times.json", "w") as f: json.dump(self.scheduled_times, f)
 
     def extrude(self):
-        print("Implement me!")
         self.serial_worker.send_message("EXTRUDE")
 
     def get_time(self):
