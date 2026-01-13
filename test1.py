@@ -71,15 +71,15 @@ class SerialWorker(QObject):
         self.connection_changed.emit(False)
         self.message_received.emit("Rozłączono z Arduino")
             
-    def send_message(self, req : str, wait = True):
+    def send_message(self, req : str, wait = True) -> str:
         if not self.is_connected and self.serial_connection:
-            return
+            return ""
 
         try:
             self.serial_connection.write((req.encode() + b'\n'))
             self.message_received.emit(f"Wysłano: {req}")
             if not wait:
-                return
+                return ""
 
             while True:
                 if not self.serial_connection.in_waiting > 0:
@@ -188,6 +188,16 @@ class ArduinoSchedulerApp(QMainWindow):
         test_btn = QPushButton("Testuj Arduino")
         test_btn.clicked.connect(self.test_arduino)
         btn_l.addWidget(test_btn)
+        sched_l.addLayout(btn_l)
+
+        time_btn = QPushButton("Pobierz czas lokalny")
+        time_btn.clicked.connect(self.get_time_ui)
+        btn_l.addWidget(time_btn)
+        sched_l.addLayout(btn_l)
+
+        sync_btn = QPushButton("Synchronizacja czasu")
+        sync_btn.clicked.connect(self.sync_time)
+        btn_l.addWidget(sync_btn)
         sched_l.addLayout(btn_l)
         
         right_col.addWidget(sched_group)
@@ -355,6 +365,24 @@ class ArduinoSchedulerApp(QMainWindow):
     def extrude(self):
         print("Implement me!")
         self.serial_worker.send_message("EXTRUDE")
+
+    def get_time(self):
+        tData = self.serial_worker.send_message("TIME")
+        if not tData:
+            print("Brak odpowiedzi z Arduino")
+            return
+        print(tData)
+        return datetime.datetime.fromtimestamp(int(tData))
+
+    def get_time_ui(self):
+        t = self.get_time()
+        self.serial_worker.message_received.emit(str(t))
+
+    def sync_time(self):
+        now = str(int(time_module.time()))
+        if self.serial_worker.send_message("SETTIME\n" + now) == "DONE":
+            self.serial_worker.message_received.emit("Czas zsynchronizowany!")
+        print(self.get_time())
 
     def closeEvent(self, event):
         if len(self.x_data) > 0:
