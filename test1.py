@@ -106,6 +106,7 @@ class ArduinoSchedulerApp(QMainWindow):
         self.serial_worker = SerialWorker()
         
         self.setup_ui()
+        self.update_ui_state()
         self.setup_timers()
         self.load_saved_times()
         self.setup_serial_thread()
@@ -185,19 +186,20 @@ class ArduinoSchedulerApp(QMainWindow):
         rem_btn = QPushButton("Usuń Zaznaczone")
         rem_btn.clicked.connect(self.remove_selected_time)
         btn_l.addWidget(rem_btn)
-        test_btn = QPushButton("Testuj Arduino")
-        test_btn.clicked.connect(self.test_arduino)
-        btn_l.addWidget(test_btn)
+
+        self.test_btn = QPushButton("Testuj Arduino")
+        self.test_btn.clicked.connect(self.test_arduino)
+        btn_l.addWidget(self.test_btn)
         sched_l.addLayout(btn_l)
 
-        time_btn = QPushButton("Pobierz czas lokalny")
-        time_btn.clicked.connect(self.get_time_ui)
-        btn_l.addWidget(time_btn)
+        self.time_btn = QPushButton("Pobierz czas lokalny")
+        self.time_btn.clicked.connect(self.get_time_ui)
+        btn_l.addWidget(self.time_btn)
         sched_l.addLayout(btn_l)
 
-        sync_btn = QPushButton("Synchronizacja czasu")
-        sync_btn.clicked.connect(self.sync_time)
-        btn_l.addWidget(sync_btn)
+        self.sync_btn = QPushButton("Synchronizacja czasu")
+        self.sync_btn.clicked.connect(self.sync_time)
+        btn_l.addWidget(self.sync_btn)
         sched_l.addLayout(btn_l)
         
         right_col.addWidget(sched_group)
@@ -213,6 +215,14 @@ class ArduinoSchedulerApp(QMainWindow):
         self.line, = self.ax.plot([], [], 'b-', linewidth=2)
         self._setup_ax()
         main_layout.addWidget(graph_group)
+
+    def update_ui_state(self):
+        self.test_btn.setEnabled(self.is_arduino_connected())
+        self.sync_btn.setEnabled(self.is_arduino_connected())
+        self.time_btn.setEnabled(self.is_arduino_connected())
+
+    def is_arduino_connected(self) -> bool:
+        return self.serial_worker.is_connected
 
     def _setup_ax(self):
         self.ax.set_xlim(self.start_date, self.start_date + datetime.timedelta(seconds=30))
@@ -341,6 +351,7 @@ class ArduinoSchedulerApp(QMainWindow):
     def toggle_connection(self):
         if self.serial_worker.is_connected: self.serial_worker.disconnect_serial()
         else: self.serial_worker.connect_serial(self.port_combo.currentText())
+        self.update_ui_state()
 
     def on_connection_changed(self, connected):
         self.status_label.setText(f"Status: {'Połączono' if connected else 'Niepołączono'}")
