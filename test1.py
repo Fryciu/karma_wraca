@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PySide6.QtCore import QTimer, Qt, Signal, QObject
 from PySide6.QtGui import QFont
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-# import passvalues2arduino # Odkomentuj w produkcji
+import passvalues2arduino # Odkomentuj w produkcji
 
 path = Path(__file__).parent
 PORT_SCALE = 'COM1'  
@@ -71,13 +71,28 @@ class SerialWorker(QObject):
         self.connection_changed.emit(False)
         self.message_received.emit("Rozłączono z Arduino")
             
-    def send_message(self, message):
-        if self.is_connected and self.serial_connection:
-            try:
-                self.serial_connection.write(f"{message}\n".encode())
-                self.message_received.emit(f"Wysłano: {message}")
-            except Exception as e:
-                self.message_received.emit(f"Błąd wysyłania: {str(e)}")
+    def send_message(self, req : str, wait = True):
+        if not self.is_connected and self.serial_connection:
+            return
+
+        try:
+            self.serial_connection.write((req.encode() + b'\n'))
+            self.message_received.emit(f"Wysłano: {req}")
+            if not wait:
+                return
+
+            while True:
+                if not self.serial_connection.in_waiting > 0:
+                    print("no data")
+                    continue
+                response = self.serial_connection.readline().decode(errors='replace').strip()
+                # if doesn't start with // - return
+                if response.startswith("//"):
+                    print("DEBUG:", response)
+                else:
+                    return response
+        except Exception as e:
+            self.message_received.emit(f"Błąd wysyłania: {str(e)}")
 
 class ArduinoSchedulerApp(QMainWindow):
     def __init__(self):
@@ -157,6 +172,11 @@ class ArduinoSchedulerApp(QMainWindow):
         add_btn = QPushButton("Dodaj")
         add_btn.clicked.connect(self.add_time)
         input_l.addWidget(add_btn)
+        sched_l.addLayout(input_l)
+
+        extrude_btn = QPushButton("Dodaj karmy teraz!")
+        extrude_btn.clicked.connect(self.extrude)
+        input_l.addWidget(extrude_btn)
         sched_l.addLayout(input_l)
 
         self.times_list = QListWidget()
@@ -321,7 +341,9 @@ class ArduinoSchedulerApp(QMainWindow):
     def on_serial_message(self, message): self.message_label.setText(message)
 
     def test_arduino(self):
-        if self.serial_worker.is_connected: self.serial_worker.send_message("TEST")
+        if self.serial_worker.is_connected:
+            if self.serial_worker.send_message("PING") == "PING":
+                QMessageBox.information(self, "Test", "Arduino odpowiedziało poprawnie!")
 
     def load_saved_times(self):
         if os.path.exists("scheduled_times.json"):
@@ -330,6 +352,9 @@ class ArduinoSchedulerApp(QMainWindow):
 
     def save_times(self):
         with open("scheduled_times.json", "w") as f: json.dump(self.scheduled_times, f)
+
+    def extrude(self):
+        print("Implement me!")
 
     def closeEvent(self, event):
         if len(self.x_data) > 0:
