@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import sys
 import json
 import os
@@ -15,8 +16,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PySide6.QtCore import QTimer, Qt, Signal, QObject
 from PySide6.QtGui import QFont,QColor
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-import passvalues2arduino # Odkomentuj w produkcji
-
+#import passvalues2arduino # Odkomentuj w produkcji
 
 path = Path(__file__).parent
 PORT_SCALE = 'COM2'  
@@ -71,13 +71,27 @@ class SerialWorker(QObject):
         self.connection_changed.emit(False)
         self.message_received.emit("Rozłączono z Arduino")
             
-    def send_message(self, message):
-        if self.is_connected and self.serial_connection:
-            try:
-                self.serial_connection.write(f"{message}\n".encode())
-                self.message_received.emit(f"Wysłano: {message}")
-            except Exception as e:
-                self.message_received.emit(f"Błąd wysyłania: {str(e)}")
+    def send_message(self, req : str, wait = True) -> str:
+        if not self.is_connected and self.serial_connection:
+            return ""
+
+        try:
+            self.serial_connection.write((req.encode() + b'\n'))
+            self.message_received.emit(f"Wysłano: {req}")
+            if not wait:
+                return ""
+
+            while True:
+                if not self.serial_connection.in_waiting > 0:
+                    continue
+                response = self.serial_connection.readline().decode(errors='replace').strip()
+                # if doesn't start with // - return
+                if response.startswith("//"):
+                    print("DEBUG:", response)
+                else:
+                    return response
+        except Exception as e:
+            self.message_received.emit(f"Błąd wysyłania: {str(e)}")
 
 class ArduinoSchedulerApp(QMainWindow):
     def __init__(self):
@@ -93,6 +107,7 @@ class ArduinoSchedulerApp(QMainWindow):
         self.recently_added_item = {"time":"", "target":"", "unit":""}
         self.done = False
         self.setup_ui()
+        self.update_ui_state()
         self.setup_timers()
         self.load_saved_times()
         self.setup_serial_thread()
@@ -169,6 +184,11 @@ class ArduinoSchedulerApp(QMainWindow):
         input_l.addWidget(add_btn)
         sched_l.addLayout(input_l)
 
+        extrude_btn = QPushButton("Dodaj karmy teraz!")
+        extrude_btn.clicked.connect(self.extrude)
+        input_l.addWidget(extrude_btn)
+        sched_l.addLayout(input_l)
+
         self.times_list = QListWidget()
         sched_l.addWidget(self.times_list)
         
@@ -176,9 +196,20 @@ class ArduinoSchedulerApp(QMainWindow):
         rem_btn = QPushButton("Usuń Zaznaczone")
         rem_btn.clicked.connect(self.remove_selected_time)
         btn_l.addWidget(rem_btn)
-        test_btn = QPushButton("Testuj Arduino")
-        test_btn.clicked.connect(self.test_arduino)
-        btn_l.addWidget(test_btn)
+
+        self.test_btn = QPushButton("Testuj Arduino")
+        self.test_btn.clicked.connect(self.test_arduino)
+        btn_l.addWidget(self.test_btn)
+        sched_l.addLayout(btn_l)
+
+        self.time_btn = QPushButton("Pobierz czas lokalny")
+        self.time_btn.clicked.connect(self.get_time_ui)
+        btn_l.addWidget(self.time_btn)
+        sched_l.addLayout(btn_l)
+
+        self.sync_btn = QPushButton("Synchronizacja czasu")
+        self.sync_btn.clicked.connect(self.sync_time)
+        btn_l.addWidget(self.sync_btn)
         sched_l.addLayout(btn_l)
         
         right_col.addWidget(sched_group)
@@ -194,6 +225,14 @@ class ArduinoSchedulerApp(QMainWindow):
         self.line, = self.ax.plot([], [], 'b-', linewidth=2)
         self._setup_ax()
         main_layout.addWidget(graph_group)
+
+    def update_ui_state(self):
+        self.test_btn.setEnabled(self.is_arduino_connected())
+        self.sync_btn.setEnabled(self.is_arduino_connected())
+        self.time_btn.setEnabled(self.is_arduino_connected())
+
+    def is_arduino_connected(self) -> bool:
+        return self.serial_worker.is_connected
 
     def _setup_ax(self):
         self.ax.set_xlim(self.start_date, self.start_date + datetime.timedelta(seconds=30))
@@ -271,7 +310,6 @@ class ArduinoSchedulerApp(QMainWindow):
         self.done = False
         # Log do konsoli GUI
         message = f"TRIGGER:{time_str} | CEL: {target_val}{unit}"
-        self.serial_worker.send_message(message)
         
         #TODO ODKOMENTUJ W PRODUKCJI:
         #transmitter = passvalues2arduino.ScaleToArduino(
@@ -365,6 +403,7 @@ class ArduinoSchedulerApp(QMainWindow):
     def toggle_connection(self):
         if self.serial_worker.is_connected: self.serial_worker.disconnect_serial()
         else: self.serial_worker.connect_serial(self.port_combo.currentText())
+        self.update_ui_state()
 
     def on_connection_changed(self, connected):
         self.status_label.setText(f"Status: {'Połączono' if connected else 'Niepołączono'}")
@@ -374,7 +413,9 @@ class ArduinoSchedulerApp(QMainWindow):
     def on_serial_message(self, message): self.message_label.setText(message)
 
     def test_arduino(self):
-        if self.serial_worker.is_connected: self.serial_worker.send_message("TEST")
+        if self.serial_worker.is_connected:
+            if self.serial_worker.send_message("PING") == "PING":
+                QMessageBox.information(self, "Test", "Arduino odpowiedziało poprawnie!")
 
     def load_saved_times(self):
         if os.path.exists("scheduled_times.json"):
@@ -383,6 +424,27 @@ class ArduinoSchedulerApp(QMainWindow):
 
     def save_times(self):
         with open("scheduled_times.json", "w") as f: json.dump(self.scheduled_times, f)
+
+    def extrude(self):
+        self.serial_worker.send_message("EXTRUDE")
+
+    def get_time(self):
+        tData = self.serial_worker.send_message("TIME")
+        if not tData:
+            print("Brak odpowiedzi z Arduino")
+            return
+        print(tData)
+        return datetime.datetime.fromtimestamp(int(tData))
+
+    def get_time_ui(self):
+        t = self.get_time()
+        self.serial_worker.message_received.emit(str(t))
+
+    def sync_time(self):
+        now = str(int(time_module.time()))
+        if self.serial_worker.send_message("SETTIME\n" + now) == "DONE":
+            self.serial_worker.message_received.emit("Czas zsynchronizowany!")
+        print(self.get_time())
 
     def closeEvent(self, event):
         if len(self.x_data) > 0:
