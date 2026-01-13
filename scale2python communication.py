@@ -9,7 +9,7 @@ import datetime
 
 path = Path(__file__).parent
 
-PORT_SCALE = 'COM1'  
+PORT_SCALE = 'COM2'  
 BAUD_RATE = 9600  # Upewnij się, że to pasuje do ustawień Twojej wagi BS600M!
 
 
@@ -22,7 +22,7 @@ BAUD_RATE = 9600  # Upewnij się, że to pasuje do ustawień Twojej wagi BS600M!
 
 def parse_weight(raw_line):
     
-    return np.random.randint(1, 100) #TODO Test żeby sprawdzić czy będzie działać
+    #return np.random.randint(1, 100) #TODO Test żeby sprawdzić czy będzie działać
 
     """
     Parsuje surowy ciąg znaków z wagi (np. 'WTST+   0.00  g')
@@ -70,7 +70,7 @@ def tare_scale(ser_connection):
 
 try:
     # Inicjalizacja połączenia szeregowego
-    #ser = serial.Serial(PORT_SCALE, BAUD_RATE, timeout=1)
+    ser = serial.Serial(PORT_SCALE, BAUD_RATE, timeout=1)
     print(f"Połączono z {PORT_SCALE} przy {BAUD_RATE} baud")
     
     # Inicjalizacja wykresu
@@ -105,13 +105,13 @@ try:
         if 1: #TODO Zastąpić ser.in_waiting > 0
             try:
                 # Odczytaj linię (zakładając, że waga wysyła dane zakończone znakiem nowej linii)
-                #raw_bytes = ser.readline()
-                #raw_line = raw_bytes.decode('utf-8', errors='ignore').strip()
+                raw_bytes = ser.readline()
+                raw_line = raw_bytes.decode('utf-8', errors='ignore').strip()
                 
                 if 1:  #TODO zastąpić "raw_line"
                     # Wypisanie odebranego sygnału
                     #print(f"Odebrano: {repr(raw_line)}")
-                    raw_line = "WTST+ 0.00 g" #TODO usunąć
+                    #raw_line = "WTST+ 0.00 g" #TODO usunąć
                     # Parsowanie wagi
                     weight = parse_weight(raw_line)
                     

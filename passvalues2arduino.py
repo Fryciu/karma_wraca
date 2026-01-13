@@ -2,8 +2,10 @@ import serial
 import time
 import sys
 
+
+PORT_SCALE = "COM2"
 class ScaleToArduino:
-    def __init__(self, scale_port='COM1', arduino_port='COM14', target_weight=0.2, weight_unit='kg'):
+    def __init__(self,scale_object, scale_port='COM1', arduino_port='COM14', target_weight=0.2, weight_unit='kg'):
         """Inicjalizacja połączeń z wagą i Arduino"""
         self.scale_port = scale_port
         self.arduino_port = arduino_port
@@ -15,14 +17,7 @@ class ScaleToArduino:
         
         try:
             # Połącz się z wagą
-            self.scale_ser = serial.Serial(
-                scale_port, 
-                9600, 
-                timeout=1,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE
-            )
+            self.scale_ser = scale_object
             print(f"Połączono z wagą na {scale_port}")
             
             # Połącz się z Arduino
@@ -128,8 +123,18 @@ class ScaleToArduino:
 # Użycie
 if __name__ == "__main__":
     # Ustaw swoje porty!
+    scale_ser = serial.Serial(
+        PORT_SCALE, 
+        9600, 
+        timeout=1,
+        bytesize=serial.EIGHTBITS,
+        parity=serial.PARITY_NONE,
+        stopbits=serial.STOPBITS_ONE
+    )
     transmitter = ScaleToArduino(
-        scale_port='COM1',    # Port konwertera wagi
+
+        scale_object=scale_ser,
+        scale_port=PORT_SCALE,    # Port konwertera wagi
         arduino_port='COM14'   # Port Arduino
     )
     transmitter.run()

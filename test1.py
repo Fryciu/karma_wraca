@@ -5,24 +5,25 @@ import serial
 import serial.tools.list_ports
 import time as time_module
 import datetime
-import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-
+import numpy as np
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QHBoxLayout, QLabel, QLineEdit, QPushButton, 
                                QListWidget, QComboBox, QMessageBox, QGroupBox,
                                QListWidgetItem)
 from PySide6.QtCore import QTimer, Qt, Signal, QObject
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont,QColor
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-# import passvalues2arduino # Odkomentuj w produkcji
+import passvalues2arduino # Odkomentuj w produkcji
+
 
 path = Path(__file__).parent
-PORT_SCALE = 'COM1'  
+PORT_SCALE = 'COM2'  
 BAUD_RATE_SCALE = 9600 
 
 def parse_weight(raw_line):
+    
     return np.random.randint(1, 100) #TODO Test żeby sprawdzić czy będzie działać
     """
     Parsuje surowy ciąg znaków z wagi (np. 'WTST+   0.00  g')
@@ -89,11 +90,21 @@ class ArduinoSchedulerApp(QMainWindow):
 
         self.scheduled_times = []
         self.serial_worker = SerialWorker()
-        
+        self.recently_added_item = {"time":"", "target":"", "unit":""}
+        self.done = False
         self.setup_ui()
         self.setup_timers()
         self.load_saved_times()
         self.setup_serial_thread()
+        #self.scale_ser = serial.Serial( #TODO odkomentuj w produkcji
+        #        PORT_SCALE, 
+        #        9600, 
+        #        timeout=1,
+        #        bytesize=serial.EIGHTBITS,
+        #        parity=serial.PARITY_NONE,
+        #        stopbits=serial.STOPBITS_ONE
+        #    )
+        
         
     def setup_ui(self):
         self.setWindowTitle("Arduino Scheduler & Scale Monitor")
@@ -211,9 +222,11 @@ class ArduinoSchedulerApp(QMainWindow):
 
     def update_weight_data(self):
         current_time = time_module.time()
-        # if self.ser_scale.in_waiting > 0: # TODO
         if 1:
-            raw_line = "WTST+ 0.00 g" # TODO zastąpić
+        #if self.scale_ser.in_waiting > 0: # TODO odkomentuj w produkcji
+            raw_line = "" # TODO zakomentuj w produkcji
+            #raw_bytes = self.scale_ser.readline()
+            #raw_line = raw_bytes.decode('utf-8', errors='ignore').strip()
             weight = parse_weight(raw_line)
             if weight is not None:
                 elapsed = current_time - self.start_time
@@ -234,42 +247,58 @@ class ArduinoSchedulerApp(QMainWindow):
 
     def check_scheduled_times(self, now):
         current_hm = now.strftime("%H:%M")
-        if current_hm == self.last_triggered_time: return
+        if current_hm == self.last_triggered_time: 
+            return
+    
         for entry in self.scheduled_times:
             if entry['time'] == current_hm:
-                self.trigger_arduino(entry)
+                # 1. Ustaw flagę i odśwież widok
+                self.done = False
                 self.last_triggered_time = current_hm
-                self.update_times_list()
+                self.overwrite_times_list_status()
+                
+                # 2. Wymuś przerysowanie GUI (ważne!)
+                QApplication.processEvents() 
+                
+                # 3. Uruchom proces (jeśli to trwa długo, GUI i tak może przygasnąć)
+                self.trigger_arduino(entry)
                 break
-
     def trigger_arduino(self, entry):
         """Wysyła sygnał i uruchamia transmiter z wybraną przez użytkownika jednostką"""
         time_str = entry['time']
         target_val = entry['target']
         unit = entry['unit']
-        
+        self.done = False
         # Log do konsoli GUI
         message = f"TRIGGER:{time_str} | CEL: {target_val}{unit}"
         self.serial_worker.send_message(message)
         
-        # ODKOMENTUJ W PRODUKCJI:
-        # transmitter = passvalues2arduino.ScaleToArduino(
-        #     scale_port='COM1',
-        #     arduino_port='COM14',
-        #     target_weight=float(target_val),
-        #     weight_unit=unit   
-        # )
-        # transmitter.run()
+        #TODO ODKOMENTUJ W PRODUKCJI:
+        #transmitter = passvalues2arduino.ScaleToArduino(
+        #    scale_object=self.scale_ser,
+        #    scale_port=PORT_SCALE,
+        #    arduino_port='COM14',
+        #    target_weight=float(target_val),
+        #    weight_unit=unit   
+        #)
+        #transmitter.run()
+        time_module.sleep(3)     
+        self.done = True
+        self.overwrite_times_list_status()
 
     def add_time(self):
+        
         t = self.time_edit.text().strip()
         w = self.weight_edit.text().strip().replace(',', '.')
         u = self.unit_combo.currentText()
-        
         try:
             val = float(w)
             if self.validate_time(t) and not any(i['time'] == t for i in self.scheduled_times):
-                self.scheduled_times.append({'time': t, 'target': val, 'unit': u})
+                if int(t.replace(":",""))<1000 and len(t.strip()) == 4:
+                    t = "0"+t
+
+                self.recently_added_item = {'time': t, 'target': val, 'unit': u}
+                self.scheduled_times.append(self.recently_added_item)
                 self.update_times_list()
                 self.save_times()
                 self.time_edit.clear()
@@ -283,21 +312,46 @@ class ArduinoSchedulerApp(QMainWindow):
             return 0 <= h <= 23 and 0 <= m <= 59
         except: return False
 
+    
     def update_times_list(self):
-        self.times_list.clear()
         now_hm = datetime.datetime.now().strftime("%H:%M")
         self.scheduled_times.sort(key=lambda x: x['time'])
-        for e in self.scheduled_times:
-            status = 'AKTYWNE' if e['time'] == now_hm else 'Oczekuje'
-            item = QListWidgetItem(f"{e['time']} -> {e['target']}{e['unit']} ({status})")
-            if e['time'] == now_hm: item.setBackground(Qt.green)
-            self.times_list.addItem(item)
+        e = self.recently_added_item
+        status = 'AKTYWNE' if e['time'] == now_hm and not self.done else 'Oczekuje'
+        item = QListWidgetItem(f"{e['time']} -> {e['target']}{e['unit']} ({status})")
+        self.times_list.addItem(item)
+        self.recently_added_item = {"time":"", "target":"", "unit":""}
+        item.setBackground(Qt.green) if e['time'] == now_hm and not self.done else item.setBackground(QColor(0, 0, 0, 0))
 
+        
+    def overwrite_times_list_status(self):
+        self.times_list.clear()
+        now_hm = datetime.datetime.now().strftime("%H:%M")
+        
+        # Sortowanie zapewnia, że lista zawsze wygląda tak samo
+        self.scheduled_times.sort(key=lambda x: x['time'])
+        
+        for e in self.scheduled_times:
+            is_active = (e['time'] == now_hm and not self.done)
+            status = 'AKTYWNE' if is_active else 'Oczekuje'
+            
+            item = QListWidgetItem(f"{e['time']} -> {e['target']}{e['unit']} ({status})")
+            
+            if is_active:
+                item.setBackground(QColor("green"))
+                item.setForeground(QColor("white")) # Dla lepszej czytelności
+            else:
+                item.setBackground(QColor(0, 0, 0, 0)) # Przezroczyste
+                
+            self.times_list.addItem(item)
+    
+    
     def remove_selected_time(self):
+        
         for item in self.times_list.selectedItems():
             t = item.text().split(' -> ')[0]
             self.scheduled_times = [i for i in self.scheduled_times if i['time'] != t]
-        self.update_times_list()
+        self.overwrite_times_list_status()
         self.save_times()
 
     def setup_serial_thread(self):
@@ -325,7 +379,7 @@ class ArduinoSchedulerApp(QMainWindow):
     def load_saved_times(self):
         if os.path.exists("scheduled_times.json"):
             with open("scheduled_times.json", "r") as f: self.scheduled_times = json.load(f)
-            self.update_times_list()
+            self.overwrite_times_list_status()
 
     def save_times(self):
         with open("scheduled_times.json", "w") as f: json.dump(self.scheduled_times, f)
